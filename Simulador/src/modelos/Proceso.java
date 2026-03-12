@@ -9,5 +9,22 @@ package modelos;
  * @author pinto
  */
 public class Proceso {
-    
+    private int id;
+    private String estado; // "Nuevo", "Listo", "Ejecutando", "Bloqueado", "Terminado"
+    private String operacion; // "Crear", "Leer", "Actualizar", "Eliminar"
+    private String nombreArchivo;
+
+    public Proceso(int id, String operacion, String nombreArchivo) {
+        this.id = id;
+        this.estado = "Nuevo";
+        this.operacion = operacion;
+        this.nombreArchivo = nombreArchivo;
+    }
+
+    // Getters y Setters básicos
+    public int getId() { return id; }
+    public String getEstado() { return estado; }
+    public void setEstado(String estado) { this.estado = estado; }
+    public String getOperacion() { return operacion; }
+    public String getNombreArchivo() { return nombreArchivo; }
 }
