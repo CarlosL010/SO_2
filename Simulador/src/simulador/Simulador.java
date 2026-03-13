@@ -4,17 +4,18 @@
  */
 package simulador;
 
-/**
- *
- * @author pinto
- */
-public class Simulador {
+import gui.SimuladorGUI;
+import javax.swing.SwingUtilities;
 
-    /**
-     * @param args the command line arguments
-     */
+public class Simulador {
     public static void main(String[] args) {
-        // TODO code application logic here
+        // En Swing, las interfaces gráficas deben ejecutarse en un hilo especial
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                SimuladorGUI ventana = new SimuladorGUI();
+                ventana.setVisible(true);
+            }
+        });
     }
-    
 }
