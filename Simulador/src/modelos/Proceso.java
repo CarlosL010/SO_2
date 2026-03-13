@@ -13,12 +13,14 @@ public class Proceso {
     private String estado; // "Nuevo", "Listo", "Ejecutando", "Bloqueado", "Terminado"
     private String operacion; // "Crear", "Leer", "Actualizar", "Eliminar"
     private String nombreArchivo;
+    private int posicionBloque;
 
     public Proceso(int id, String operacion, String nombreArchivo) {
         this.id = id;
         this.estado = "Nuevo";
         this.operacion = operacion;
         this.nombreArchivo = nombreArchivo;
+        this.posicionBloque = posicionBloque;
     }
 
     // Getters y Setters básicos
@@ -27,4 +29,5 @@ public class Proceso {
     public void setEstado(String estado) { this.estado = estado; }
     public String getOperacion() { return operacion; }
     public String getNombreArchivo() { return nombreArchivo; }
+    public int getPosicionBloque() { return posicionBloque; }
 }
