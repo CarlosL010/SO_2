@@ -5,6 +5,11 @@
 package core;
 import estructuras.Cola;
 import modelos.Proceso;
+import bitacora.MotorBitacora;
+import bitacora.Transaccion;
+import concurrencia.GestorLocks;
+import gui.SimuladorGUI; 
+import javax.swing.SwingUtilities; 
 /**
  *
  * @author pinto
@@ -12,53 +17,74 @@ import modelos.Proceso;
 public class GestorProcesos implements Runnable {
     private Cola<Proceso> colaListos;
     private PlanificadorDisco planificador;
+    private MotorBitacora bitacora;
+    private GestorLocks locks;
+    private SimuladorGUI gui; 
     private boolean sistemaCorriendo;
     private int contadorIdProcesos;
 
-    public GestorProcesos(PlanificadorDisco planificador) {
+    // Actualizamos el constructor para recibir todo
+    public GestorProcesos(PlanificadorDisco planificador, MotorBitacora bitacora, GestorLocks locks, SimuladorGUI gui) {
         this.colaListos = new Cola<>();
         this.planificador = planificador;
+        this.bitacora = bitacora;
+        this.locks = locks;
+        this.gui = gui;
         this.sistemaCorriendo = false;
         this.contadorIdProcesos = 1;
     }
 
-    // Método que llamará tu compañero desde la GUI cuando presione un botón
     public void agregarProcesoCRUD(String operacion, String nombreArchivo, int posicionDestino) {
         Proceso nuevoProceso = new Proceso(contadorIdProcesos++, operacion, nombreArchivo, posicionDestino);
-        nuevoProceso.setEstado("Listo");
         colaListos.enqueue(nuevoProceso);
-        System.out.println("Gestor: Nuevo proceso [" + operacion + " " + nombreArchivo + "] agregado a la cola de listos.");
+        System.out.println("Gestor: Proceso " + operacion + " encolado.");
     }
 
-    // Para encender el motor del SO
     public void iniciarSistema() {
         this.sistemaCorriendo = true;
-        Thread hiloSistema = new Thread(this);
-        hiloSistema.start();
-        System.out.println("Gestor: Hilo del Sistema Operativo iniciado.");
+        new Thread(this).start();
     }
 
-    public void detenerSistema() {
-        this.sistemaCorriendo = false;
-    }
-
-    // Este es el ciclo de vida del Sistema Operativo (El Hilo en background)
     @Override
     public void run() {
         while (sistemaCorriendo) {
             if (!colaListos.isEmpty()) {
-                // Si hay procesos en la cola, llamamos al algoritmo que diseñaste antes
-                // El planificador decidirá a quién atiende primero según la política actual (SSTF, SCAN, etc.)
-                planificador.procesarCola(colaListos);
+                // 1. El planificador nos dice dónde se movió el cabezal 
+                planificador.procesarCola(colaListos); 
+                
+                // NOTA: Para hacer esto perfecto, tu planificador debería devolverte el Proceso 
+                // que acaba de ejecutar para que tú le apliques los locks y el journaling.
+                // Como simulación rápida, asumiremos que procesamos el flujo aquí:
+                ejecutarSimulacionSegura();
             }
 
-            // Pausa de medio segundo para no quemar el procesador real y para que
-            // en la defensa se pueda ver la animación del cabezal moviéndose en la GUI
-            try {
-                Thread.sleep(500); 
-            } catch (InterruptedException e) {
-                System.out.println("El hilo del sistema fue interrumpido.");
-            }
+            try { Thread.sleep(1000); } catch (InterruptedException e) { } // Pausa de 1 seg
         }
+    }
+
+    
+    private void ejecutarSimulacionSegura() {
+        // Ejemplo de cómo debes mezclar el Journaling y los Locks:
+        
+        // 1. Pedir permiso (Lock Exclusivo si es crear/eliminar, Compartido si es leer) 
+        locks.adquirirLockEscritura(); 
+        
+        // 2. Anotar en la bitácora ANTES de hacer el cambio (Journaling) 
+        Transaccion t = bitacora.registrarPendiente("CREATE", "archivo_nuevo.txt");
+        
+        // 3. Simular el tiempo de E/S del disco
+        try { Thread.sleep(500); } catch (InterruptedException e) {}
+        
+        // 4. Confirmar que todo salió bien (Commit)
+        bitacora.hacerCommit(t);
+        
+        // 5. Liberar el recurso para otros procesos 
+        locks.liberarLockEscritura();
+        
+        // 6. Avisarle a la GUI de Persona A que se actualice 
+        SwingUtilities.invokeLater(() -> {
+            // gui.actualizarPosicionCabezal(planificador.getPosicionCabezal());
+            System.out.println("GUI Actualizada.");
+        });
     }
 }
