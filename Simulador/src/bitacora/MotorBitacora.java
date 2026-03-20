@@ -9,66 +9,62 @@ import estructuras.Nodo;
  *
  * @author pinto
  */
+import core.Disco;
+import estructuras.ListaEnlazada;
+import estructuras.Nodo;
+
 public class MotorBitacora {
     private ListaEnlazada<Transaccion> logTransacciones;
+    private Disco discoVirtual; // NUEVO: Para poder hacer el Undo físico
 
     public MotorBitacora() {
         this.logTransacciones = new ListaEnlazada<>();
     }
 
-    // Paso 1: Registrar ANTES de hacer la operación
+    public void setDiscoVirtual(Disco disco) {
+        this.discoVirtual = disco;
+    }
+
     public Transaccion registrarPendiente(String operacion, String nombreArchivo) {
         Transaccion t = new Transaccion(operacion, nombreArchivo);
         logTransacciones.add(t);
-        System.out.println("Journal: Registrada operación " + operacion + " sobre " + nombreArchivo + " como PENDIENTE.");
         return t;
     }
 
-    // Paso 2: Confirmar DESPUÉS de hacer la operación con éxito
     public void hacerCommit(Transaccion t) {
         t.setEstado("CONFIRMADA");
-        System.out.println("Journal: Transacción " + t.getId() + " CONFIRMADA (Commit).");
     }
 
-    // Paso 3: El protocolo de emergencia al reiniciar el sistema
     public void recuperarSistema() {
         System.out.println("--- Iniciando Recuperación del Sistema (Journaling) ---");
-        
         Nodo<Transaccion> actual = logTransacciones.getHead();
         boolean hubieronFallos = false;
 
-        // Recorremos todo el historial buscando operaciones a medias
         while (actual != null) {
             Transaccion t = actual.getData();
-            
             if (t.getEstado().equals("PENDIENTE")) {
                 hubieronFallos = true;
-                System.out.println("Journal: ¡Alerta! Detectada transacción " + t.getId() + 
-                                   " incompleta (" + t.getTipoOperacion() + "). Aplicando UNDO...");
+                System.out.println("Journal: ¡Alerta! Detectada transacción incompleta. Aplicando UNDO...");
                 aplicarUndo(t);
-                t.setEstado("DESHECHA"); // Marcamos para no volver a deshacerla en el futuro
+                t.setEstado("DESHECHA (UNDO)"); 
             }
             actual = actual.getNext();
         }
-
-        if (!hubieronFallos) {
-            System.out.println("Journal: El sistema se cerró correctamente. No hay fallos que recuperar.");
-        }
-        System.out.println("--- Recuperación Finalizada ---");
+        if (!hubieronFallos) System.out.println("Journal: Sistema limpio. No hay fallos.");
     }
 
-    // La lógica para revertir el daño
     private void aplicarUndo(Transaccion t) {
-        if (t.getTipoOperacion().equals("CREATE")) {
-            System.out.println("UNDO: Revirtiendo CREATE. Eliminando rastros de '" + t.getNombreArchivo() + "' y liberando sus bloques.");
-            // NOTA: Aquí más adelante llamaremos al método de la Persona A para liberar los bloques del disco.
-        } else if (t.getTipoOperacion().equals("DELETE")) {
-            System.out.println("UNDO: Revirtiendo DELETE. Restaurando punteros y bloques del archivo '" + t.getNombreArchivo() + "'.");
-            // NOTA: Aquí restauraremos el archivo si se borró a medias.
+        if (t.getTipoOperacion().equals("Crear")) {
+            System.out.println("UNDO: Revirtiendo CREATE. Eliminando rastros de '" + t.getNombreArchivo() + "'.");
+            if (discoVirtual != null) {
+                // ¡Llamamos al método de la Persona A para liberar los bloques!
+                discoVirtual.eliminarArchivo(t.getNombreArchivo()); 
+            }
+        } else if (t.getTipoOperacion().equals("Eliminar")) {
+            System.out.println("UNDO: Revirtiendo DELETE (Requiere respaldo de bloques).");
         }
     }
 
-    // Método para que la Persona A pueda mostrar el log en una tabla de la interfaz
     public ListaEnlazada<Transaccion> getLog() {
         return logTransacciones;
     }

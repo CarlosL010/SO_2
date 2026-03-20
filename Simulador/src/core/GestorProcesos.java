@@ -4,6 +4,7 @@
  */
 package core;
 
+
 import estructuras.Cola;
 import modelos.Proceso;
 import bitacora.MotorBitacora;
@@ -18,14 +19,18 @@ public class GestorProcesos implements Runnable {
     private MotorBitacora bitacora;
     private GestorLocks locks;
     private SimuladorGUI gui; 
-    
-    // --- EL CEREBRO DE LA PERSONA A ---
     private Disco discoVirtual; 
     
     private boolean sistemaCorriendo;
     private int contadorIdProcesos;
+    
+    private volatile boolean pausado;
+    private volatile int tiempoVelocidadMs; 
+    private int cicloActual; 
 
-    // Actualizamos el constructor para recibir TODO, incluido el Disco
+    // --- NUEVO: GATILLO DE FALLO ---
+    private volatile boolean forzarCrash = false;
+
     public GestorProcesos(PlanificadorDisco planificador, MotorBitacora bitacora, GestorLocks locks, SimuladorGUI gui, Disco discoVirtual) {
         this.colaListos = new Cola<>();
         this.planificador = planificador;
@@ -33,14 +38,33 @@ public class GestorProcesos implements Runnable {
         this.locks = locks;
         this.gui = gui;
         this.discoVirtual = discoVirtual;
+        
         this.sistemaCorriendo = false;
         this.contadorIdProcesos = 1;
+        this.pausado = false;
+        this.tiempoVelocidadMs = 500; 
+        this.cicloActual = 0;
+        
+        // Le pasamos el disco a la bitácora para que pueda hacer el Undo después
+        this.bitacora.setDiscoVirtual(discoVirtual);
     }
+
+    public void setPausado(boolean pausado) { this.pausado = pausado; }
+    public boolean isPausado() { return pausado; }
+    public void setTiempoVelocidadMs(int ms) { this.tiempoVelocidadMs = ms; }
+    public PlanificadorDisco getPlanificador() { return planificador; }
+    public MotorBitacora getBitacora() { return bitacora; }
+    public int getCicloActual() { return cicloActual; }
+
+    public void activarCrash() { this.forzarCrash = true; } // Activa la trampa
 
     public void agregarProcesoCRUD(String operacion, String nombreArchivo, int posicionDestino, int tamano) {
         Proceso nuevoProceso = new Proceso(contadorIdProcesos++, operacion, nombreArchivo, posicionDestino, tamano);
         colaListos.enqueue(nuevoProceso);
-        System.out.println("Gestor: Proceso " + operacion + " sobre '" + nombreArchivo + "' encolado.");
+        if(gui != null) {
+            gui.agregarLog(cicloActual, "Proceso recibido: Proc-" + nuevoProceso.getId() + " (" + operacion.toUpperCase() + ")");
+            actualizarVistaCola(null);
+        }
     }
 
     public void iniciarSistema() {
@@ -48,60 +72,84 @@ public class GestorProcesos implements Runnable {
         new Thread(this).start();
     }
 
+    private void actualizarVistaCola(Proceso pEjecucion) {
+        if(gui == null) return;
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== LISTOS ===\nProcesos esperando E/S: ").append(colaListos.isEmpty() ? "0" : "Varios en cola").append("\n\n");
+        sb.append("=== EN CPU / EJECUCIÓN ===\n");
+        if (pEjecucion != null) sb.append("Proc-").append(pEjecucion.getId()).append(" [").append(pEjecucion.getOperacion()).append(" ").append(pEjecucion.getNombreArchivo()).append("]\n");
+        else sb.append("Ninguno (Idle)\n");
+        gui.actualizarColaUI(sb.toString());
+    }
+
     @Override
     public void run() {
         while (sistemaCorriendo) {
+            if (pausado) {
+                try { Thread.sleep(100); } catch (InterruptedException e) {}
+                continue; 
+            }
+            cicloActual++;
+            SwingUtilities.invokeLater(() -> {
+                if(gui != null) gui.actualizarEstado(cicloActual, planificador.getPosicionCabezal());
+            });
+
             if (!colaListos.isEmpty()) {
-                // 1. El planificador mueve el cabezal y nos da el proceso ganador
                 Proceso procesoAEjecutar = planificador.procesarCola(colaListos); 
-                
                 if (procesoAEjecutar != null) {
                     procesoAEjecutar.setEstado("Ejecutando");
+                    actualizarVistaCola(procesoAEjecutar);
+                    gui.agregarLog(cicloActual, "CPU asignada a Proc-" + procesoAEjecutar.getId());
+                    
                     ejecutarOperacionReal(procesoAEjecutar);
+                    
+                    if (!sistemaCorriendo) return; // Si hubo crash, el hilo muere aquí mismo.
+
                     procesoAEjecutar.setEstado("Terminado");
+                    actualizarVistaCola(null);
                 }
+            } else {
+                actualizarVistaCola(null);
             }
-            try { Thread.sleep(1000); } catch (InterruptedException e) { } 
+            try { Thread.sleep(tiempoVelocidadMs); } catch (InterruptedException e) {} 
         }
     }
 
     private void ejecutarOperacionReal(Proceso p) {
-        boolean esEscritura = p.getOperacion().equals("Crear") || p.getOperacion().equals("Eliminar");
+        boolean esEscritura = p.getOperacion().equals("Crear") || p.getOperacion().equals("Eliminar") || p.getOperacion().equals("Actualizar");
 
-        // 1. Pedir permiso (Locks de Persona B)
         if (esEscritura) locks.adquirirLockEscritura();
         else locks.adquirirLockLectura(); 
         
-        // 2. Anotar en la bitácora ANTES de hacer el cambio (Journaling de Persona B)
         Transaccion t = bitacora.registrarPendiente(p.getOperacion(), p.getNombreArchivo());
+        gui.agregarLog(cicloActual, "Journaling: Transacción PENDIENTE (" + p.getOperacion() + ")");
         
-        // 3. Simular el tiempo de E/S del disco
-        try { Thread.sleep(500); } catch (InterruptedException e) {}
+        try { Thread.sleep(tiempoVelocidadMs / 2); } catch (InterruptedException e) {}
         
-        // 4. EJECUTAR EN EL DISCO REAL (Lógica de Persona A)
-        boolean exito = false;
-        if (p.getOperacion().equals("Crear")) {
-            // Buscamos espacio y creamos
-            exito = discoVirtual.crearArchivo(p.getNombreArchivo(), "Administrador", p.getTamanoRequerido());
-        } else if (p.getOperacion().equals("Eliminar")) {
-            // Liberamos los bloques
-            exito = discoVirtual.eliminarArchivo(p.getNombreArchivo());
+        boolean exito = true;
+        if (p.getOperacion().equals("Crear")) exito = discoVirtual.crearArchivo(p.getNombreArchivo(), "Administrador", p.getTamanoRequerido());
+        else if (p.getOperacion().equals("Eliminar")) exito = discoVirtual.eliminarArchivo(p.getNombreArchivo());
+        
+        // --- ¡EL MOMENTO DEL FALLO! ---
+        if (forzarCrash && esEscritura) {
+            this.sistemaCorriendo = false; // Matamos el Hilo
+            SwingUtilities.invokeLater(() -> gui.ejecutarPantallazoCrash());
+            return; // Salimos SIN HACER COMMIT Y SIN LIBERAR LOCKS (Simulando fallo real)
         }
         
-        // 5. Confirmar en la bitácora
         if (exito) {
             bitacora.hacerCommit(t);
+            gui.agregarLog(cicloActual, "Journaling: Transacción CONFIRMADA (Commit)");
         } else {
-            t.setEstado("FALLIDA - SIN ESPACIO/NO ENCONTRADO");
+            t.setEstado("FALLIDA");
         }
         
-        // 6. Liberar el recurso 
         if (esEscritura) locks.liberarLockEscritura();
         else locks.liberarLockLectura();
         
-        // 7. Avisarle a la GUI que se actualice 
         SwingUtilities.invokeLater(() -> {
             gui.refrescarTodo();
+            gui.actualizarEstado(cicloActual, planificador.getPosicionCabezal());
         });
     }
 }

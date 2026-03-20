@@ -89,10 +89,18 @@ public class Disco {
             bloqueActual = siguiente;
         }
 
-        // 2. Eliminar lógicamente del árbol (Nota: la ListaEnlazada actual no tiene método remove() 
-        // Tendrás que agregarlo a ListaEnlazada.java más adelante, por ahora lo dejamos en el disco)
-        System.out.println("Éxito: Archivo '" + nombre + "' eliminado y bloques liberados.");
+        // 2. Eliminar lógicamente del árbol (¡YA TENEMOS REMOVE!)
+        // Buscamos el nodo Raíz y de su lista de hijos borramos este nodo de archivo
+        boolean borradoLogico = arbolDirectorios.getRaiz().getHijos().remove(archivo);
+        
+        if(borradoLogico){
+             System.out.println("Éxito: Archivo '" + nombre + "' eliminado lógicamente del Árbol.");
+        } else {
+             System.out.println("Error: No se pudo borrar el nodo del árbol.");
+        }
+
         return true;
+    
     }
 
     // Getters
