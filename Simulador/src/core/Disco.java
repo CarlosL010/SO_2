@@ -73,34 +73,75 @@ public class Disco {
 
     // --- MÓDULO CRUD: ELIMINAR ARCHIVO ---
     public boolean eliminarArchivo(String nombre) {
-        NodoArbol archivo = arbolDirectorios.buscarNodo(arbolDirectorios.getRaiz(), nombre);
-        if (archivo == null || !archivo.isEsArchivo()) {
-            System.out.println("Error: Archivo no encontrado.");
-            return false;
-        }
-
-        // 1. Liberar los bloques enlazados en el disco
-        int bloqueActual = archivo.getPrimerBloqueAsignado();
-        while (bloqueActual != -1) {
-            int siguiente = bloques[bloqueActual].getSiguienteBloque();
-            bloques[bloqueActual].setLibre(true);
-            bloques[bloqueActual].setPerteneceA("");
-            bloques[bloqueActual].setSiguienteBloque(-1);
-            bloqueActual = siguiente;
-        }
-
-        // 2. Eliminar lógicamente del árbol (¡YA TENEMOS REMOVE!)
-        // Buscamos el nodo Raíz y de su lista de hijos borramos este nodo de archivo
-        boolean borradoLogico = arbolDirectorios.getRaiz().getHijos().remove(archivo);
+        // 1. Buscar el nodo padre y el nodo objetivo de forma recursiva
+        Object[] resultado = buscarPadreENodo(arbolDirectorios.getRaiz(), nombre);
         
-        if(borradoLogico){
-             System.out.println("Éxito: Archivo '" + nombre + "' eliminado lógicamente del Árbol.");
+        if (resultado == null) {
+            return false; // NO SE ENCONTRÓ EL ARCHIVO O DIRECTORIO
+        }
+        
+        NodoArbol padre = (NodoArbol) resultado[0];
+        NodoArbol objetivo = (NodoArbol) resultado[1];
+
+        // 2. Si es un directorio, aplicamos la eliminación recursiva (Requisito del PDF)
+        if (!objetivo.isEsArchivo()) {
+            vaciarDirectorioRecursivo(objetivo);
         } else {
-             System.out.println("Error: No se pudo borrar el nodo del árbol.");
+            // 3. Si es archivo normal, liberamos sus bloques
+            liberarBloquesFisicos(objetivo);
         }
 
+        // 4. Lo eliminamos lógicamente del árbol
+        padre.getHijos().remove(objetivo);
         return true;
+    }
     
+    private void vaciarDirectorioRecursivo(NodoArbol directorio) {
+        if (directorio.getHijos() == null || directorio.getHijos().isEmpty()) return;
+
+        estructuras.Nodo<NodoArbol> actual = directorio.getHijos().getHead();
+        while (actual != null) {
+            NodoArbol hijo = actual.getData();
+            if (!hijo.isEsArchivo()) {
+                vaciarDirectorioRecursivo(hijo); // Entra al subdirectorio a vaciarlo
+            } else {
+                liberarBloquesFisicos(hijo); // Libera los cuadritos de la RAM
+            }
+            actual = actual.getNext();
+        }
+    }
+
+    private void liberarBloquesFisicos(NodoArbol archivo) {
+        int actual = archivo.getPrimerBloqueAsignado();
+        while (actual != -1 && actual < bloques.length) {
+            int siguiente = bloques[actual].getSiguienteBloque();
+            bloques[actual].setLibre(true);
+            bloques[actual].setPerteneceA(null);
+            bloques[actual].setSiguienteBloque(-1);
+            actual = siguiente;
+        }
+    }
+
+    private Object[] buscarPadreENodo(NodoArbol actual, String nombreBuscado) {
+        if (actual.getHijos() == null) return null;
+        
+        estructuras.Nodo<NodoArbol> nodoHijo = actual.getHijos().getHead();
+        while (nodoHijo != null) {
+            NodoArbol hijo = nodoHijo.getData();
+            
+            // ¿Es el que buscamos? Retornamos un mini arreglo: [Padre, Hijo]
+            if (hijo.getNombre().equals(nombreBuscado)) {
+                return new Object[]{actual, hijo};
+            }
+            
+            // Si es una carpeta, buscamos dentro de ella recursivamente
+            if (!hijo.isEsArchivo()) {
+                Object[] hallado = buscarPadreENodo(hijo, nombreBuscado);
+                if (hallado != null) return hallado;
+            }
+            nodoHijo = nodoHijo.getNext();
+        }
+        return null;
     }
 
     // Getters

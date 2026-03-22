@@ -8,189 +8,166 @@ import modelos.Proceso;
  * @author pinto (Actualizado para integración completa)
  */
 public class PlanificadorDisco {
-    private int posicionCabezalActual;
-    private String politicaActual; // "FIFO", "SSTF", "SCAN", "C-SCAN"
-    private boolean direccionArriba;
+    private String politicaActual;
+    private int posicionCabezal;
+    private boolean moviendoArriba; // true = hacia bloques mayores (↑), false = hacia menores (↓)
 
     public PlanificadorDisco(int posicionInicial) {
-        this.posicionCabezalActual = posicionInicial;
-        this.politicaActual = "FIFO"; // Por defecto
-        this.direccionArriba = true;
+        this.posicionCabezal = posicionInicial;
+        this.politicaActual = "FIFO";
+        this.moviendoArriba = true; // Por defecto inicia hacia arriba según el PDF
     }
 
     public void setPolitica(String politica) {
         this.politicaActual = politica;
+        this.moviendoArriba = true; // Reiniciamos la dirección al cambiar de algoritmo
     }
 
-    public int getPosicionCabezal() {
-        return posicionCabezalActual;
-    }
+    public String getPolitica() { return politicaActual; }
+    public int getPosicionCabezal() { return posicionCabezal; }
+    public void setPosicionCabezal(int posicion) { this.posicionCabezal = posicion; }
 
-    // --- MÉTODO PRINCIPAL ---
-    // Ahora devuelve el Proceso que fue seleccionado para que el Gestor lo ejecute
+    // El motor principal que el Gestor llama en cada ciclo
     public Proceso procesarCola(Cola<Proceso> colaListos) {
         if (colaListos.isEmpty()) return null;
 
-        switch (politicaActual) {
-            case "FIFO":
-                return ejecutarFIFO(colaListos);
-            case "SSTF":
-                return ejecutarSSTF(colaListos);
-            case "SCAN":
-                return ejecutarSCAN(colaListos);
-            case "C-SCAN":
-                return ejecutarCSCAN(colaListos);
-            default:
-                return null;
+        // 1. Caso FIFO: Es directo, sacamos el primero que llegó y listo.
+        if (politicaActual.equals("FIFO")) {
+            Proceso p = colaListos.dequeue();
+            this.posicionCabezal = p.getPosicionBloque();
+            return p;
         }
-    }
 
-    // --- ALGORITMOS DE PLANIFICACIÓN ---
-
-    private Proceso ejecutarFIFO(Cola<Proceso> colaListos) {
-        // La lógica de FIFO es simplemente sacar el primero de la cola
-        Proceso p = colaListos.dequeue();
-        if (p != null) {
-            this.posicionCabezalActual = p.getPosicionBloque();
-            System.out.println("Planificador (FIFO): Cabezal movido a " + this.posicionCabezalActual);
-        }
-        return p;
-    }
-
-    private Proceso ejecutarSSTF(Cola<Proceso> colaListos) {
-        if (colaListos.isEmpty()) return null;
+        // 2. Para SSTF, SCAN y C-SCAN: Necesitamos ver toda la cola.
+        // Como no podemos usar ArrayList, vaciamos la cola en un arreglo primitivo temporal.
+        int cantidad = 0;
+        Cola<Proceso> colaTemporal = new Cola<>();
         
-        Proceso procesoMasCercano = null;
-        int menorDistancia = Integer.MAX_VALUE;
-        Cola<Proceso> colaTemporal = new Cola<>();
-
-        // 1. Recorremos toda la cola para encontrar el más cercano
         while (!colaListos.isEmpty()) {
-            Proceso procesoActual = colaListos.dequeue();
-            int distancia = Math.abs(this.posicionCabezalActual - procesoActual.getPosicionBloque());
+            colaTemporal.enqueue(colaListos.dequeue());
+            cantidad++;
+        }
 
-            if (distancia < menorDistancia) {
-                // Si ya teníamos un candidato anterior, lo mandamos a la cola temporal
-                if (procesoMasCercano != null) {
-                    colaTemporal.enqueue(procesoMasCercano);
+        Proceso[] procesos = new Proceso[cantidad];
+        for (int i = 0; i < cantidad; i++) {
+            procesos[i] = colaTemporal.dequeue();
+        }
+
+        Proceso elegido = null;
+        int indiceElegido = -1;
+
+        // --- MATEMÁTICA DE LOS ALGORITMOS ---
+        
+        if (politicaActual.equals("SSTF")) {
+            // SSTF: El más cercano sin importar la dirección
+            int menorDistancia = Integer.MAX_VALUE;
+            for (int i = 0; i < cantidad; i++) {
+                int distancia = Math.abs(procesos[i].getPosicionBloque() - posicionCabezal);
+                if (distancia < menorDistancia) {
+                    menorDistancia = distancia;
+                    elegido = procesos[i];
+                    indiceElegido = i;
                 }
-                // Actualizamos nuestro nuevo mejor candidato
-                procesoMasCercano = procesoActual;
-                menorDistancia = distancia;
-            } else {
-                // No es el más cercano, lo guardamos para no perderlo
-                colaTemporal.enqueue(procesoActual);
+            }
+        } 
+        else if (politicaActual.equals("SCAN")) {
+            // SCAN (Ascensor): Sube hasta que no haya más, luego baja.
+            elegido = buscarScan(procesos);
+            if (elegido != null) {
+                for(int i=0; i < cantidad; i++) { if(procesos[i] == elegido) { indiceElegido = i; break; } }
+            }
+        } 
+        else if (politicaActual.equals("C-SCAN")) {
+            // C-SCAN (Ascensor Circular): Sube hasta el final, y luego salta al bloque 0
+            elegido = buscarCScan(procesos);
+             if (elegido != null) {
+                for(int i=0; i < cantidad; i++) { if(procesos[i] == elegido) { indiceElegido = i; break; } }
             }
         }
 
-        // 2. Devolvemos los procesos no seleccionados a la cola original
-        while (!colaTemporal.isEmpty()) {
-            colaListos.enqueue(colaTemporal.dequeue());
+        // Sistema anti-fallos por si la lógica no encuentra candidato
+        if (elegido == null) {
+            elegido = procesos[0];
+            indiceElegido = 0;
         }
 
-        // 3. Devolvemos el ganador al Gestor
-        if (procesoMasCercano != null) {
-            this.posicionCabezalActual = procesoMasCercano.getPosicionBloque();
-            System.out.println("Planificador (SSTF): Cabezal movido a " + this.posicionCabezalActual);
+        // 3. Reconstruimos la cola ORIGINAL para el siguiente ciclo, OMITIENDO al elegido
+        for (int i = 0; i < cantidad; i++) {
+            if (i != indiceElegido) {
+                colaListos.enqueue(procesos[i]);
+            }
         }
-        return procesoMasCercano;
+
+        // Actualizamos la posición física de la cabeza lectora
+        this.posicionCabezal = elegido.getPosicionBloque();
+        return elegido;
     }
 
-    private Proceso ejecutarSCAN(Cola<Proceso> colaListos) {
-        if (colaListos.isEmpty()) return null;
+    // --- MÉTODOS AUXILIARES MATEMÁTICOS ---
 
-        Proceso mejorCandidato = null;
+    private Proceso buscarScan(Proceso[] procesos) {
+        Proceso candidato = null;
         int menorDistancia = Integer.MAX_VALUE;
-        Cola<Proceso> colaTemporal = new Cola<>();
 
-        // 1. Buscamos el más cercano en la dirección actual
-        while (!colaListos.isEmpty()) {
-            Proceso p = colaListos.dequeue();
+        // Fase 1: Buscar el más cercano en la dirección actual
+        for (Proceso p : procesos) {
             int pos = p.getPosicionBloque();
-
-            // Verificamos si el proceso está en nuestra ruta
-            boolean esCandidatoValido = (direccionArriba && pos >= posicionCabezalActual) ||
-                                        (!direccionArriba && pos <= posicionCabezalActual);
-
-            if (esCandidatoValido) {
-                int distancia = Math.abs(posicionCabezalActual - pos);
-                if (distancia < menorDistancia) {
-                    if (mejorCandidato != null) colaTemporal.enqueue(mejorCandidato);
-                    mejorCandidato = p;
-                    menorDistancia = distancia;
-                } else {
-                    colaTemporal.enqueue(p);
-                }
-            } else {
-                colaTemporal.enqueue(p); // No está en la ruta actual, a la cola temporal
+            if (moviendoArriba && pos >= posicionCabezal) {
+                int dist = pos - posicionCabezal;
+                if (dist < menorDistancia) { menorDistancia = dist; candidato = p; }
+            } else if (!moviendoArriba && pos <= posicionCabezal) {
+                int dist = posicionCabezal - pos;
+                if (dist < menorDistancia) { menorDistancia = dist; candidato = p; }
             }
         }
 
-        // 2. Si no encontramos nada en esta dirección, invertimos y volvemos a intentar
-        if (mejorCandidato == null) {
-            direccionArriba = !direccionArriba; // Cambiamos de ↑ a ↓ o viceversa
-            while (!colaTemporal.isEmpty()) {
-                colaListos.enqueue(colaTemporal.dequeue()); // Devolvemos todo
-            }
-            return ejecutarSCAN(colaListos); // Llamada recursiva con la nueva dirección
-        }
-
-        // 3. Devolvemos los "perdedores" a la cola principal
-        while (!colaTemporal.isEmpty()) {
-            colaListos.enqueue(colaTemporal.dequeue());
-        }
-
-        // 4. Retornamos el ganador
-        this.posicionCabezalActual = mejorCandidato.getPosicionBloque();
-        System.out.println("Planificador SCAN (" + (direccionArriba ? "↑" : "↓") + "): Cabezal movido a " + this.posicionCabezalActual);
-        return mejorCandidato;
-    }
-
-    private Proceso ejecutarCSCAN(Cola<Proceso> colaListos) {
-        if (colaListos.isEmpty()) return null;
-
-        Proceso mejorCandidato = null;
-        int menorDistancia = Integer.MAX_VALUE;
-        Cola<Proceso> colaTemporal = new Cola<>();
-
-        // 1. En C-SCAN SIEMPRE buscamos hacia arriba (posiciones mayores)
-        while (!colaListos.isEmpty()) {
-            Proceso p = colaListos.dequeue();
-            int pos = p.getPosicionBloque();
-
-            if (pos >= posicionCabezalActual) {
-                int distancia = pos - posicionCabezalActual;
-                if (distancia < menorDistancia) {
-                    if (mejorCandidato != null) colaTemporal.enqueue(mejorCandidato);
-                    mejorCandidato = p;
-                    menorDistancia = distancia;
-                } else {
-                    colaTemporal.enqueue(p);
-                }
-            } else {
-                colaTemporal.enqueue(p); // Es menor, lo ignoramos por ahora
-            }
-        }
-
-        // 2. Si no hay más procesos hacia arriba, saltamos al inicio del disco (posición 0)
-        if (mejorCandidato == null) {
-            System.out.println("Planificador C-SCAN: Límite alcanzado, cabezal salta a la posición 0");
-            this.posicionCabezalActual = 0; // El "salto circular"
+        // Fase 2: Si no hay nadie más en esta dirección, invertimos y buscamos de nuevo
+        if (candidato == null) {
+            moviendoArriba = !moviendoArriba; // Cambiamos de ↑ a ↓ o viceversa
+            menorDistancia = Integer.MAX_VALUE;
             
-            while (!colaTemporal.isEmpty()) {
-                colaListos.enqueue(colaTemporal.dequeue());
+            for (Proceso p : procesos) {
+                int pos = p.getPosicionBloque();
+                if (moviendoArriba && pos >= posicionCabezal) {
+                    int dist = pos - posicionCabezal;
+                    if (dist < menorDistancia) { menorDistancia = dist; candidato = p; }
+                } else if (!moviendoArriba && pos <= posicionCabezal) {
+                    int dist = posicionCabezal - pos;
+                    if (dist < menorDistancia) { menorDistancia = dist; candidato = p; }
+                }
             }
-            return ejecutarCSCAN(colaListos); // Volvemos a buscar pero ahora desde 0
+        }
+        return candidato;
+    }
+
+    private Proceso buscarCScan(Proceso[] procesos) {
+        Proceso candidato = null;
+        int menorDistancia = Integer.MAX_VALUE;
+
+        // Fase 1: Solo miramos hacia adelante (moviendoArriba = true siempre en C-SCAN)
+        for (Proceso p : procesos) {
+            int pos = p.getPosicionBloque();
+            if (pos >= posicionCabezal) {
+                int dist = pos - posicionCabezal;
+                if (dist < menorDistancia) {
+                    menorDistancia = dist;
+                    candidato = p;
+                }
+            }
         }
 
-        // 3. Devolvemos a los no elegidos a la cola
-        while (!colaTemporal.isEmpty()) {
-            colaListos.enqueue(colaTemporal.dequeue());
+        // Fase 2: Si no hay nadie adelante, simulamos el salto circular al bloque 0
+        // Buscamos el proceso que tenga la menor posición absoluta en el disco
+        if (candidato == null) {
+            int menorPosicion = Integer.MAX_VALUE;
+            for (Proceso p : procesos) {
+                int pos = p.getPosicionBloque();
+                if (pos < menorPosicion) {
+                    menorPosicion = pos;
+                    candidato = p;
+                }
+            }
         }
-
-        // 4. Retornamos el ganador
-        this.posicionCabezalActual = mejorCandidato.getPosicionBloque();
-        System.out.println("Planificador C-SCAN (↑): Cabezal movido a " + this.posicionCabezalActual);
-        return mejorCandidato;
+        return candidato;
     }
 }

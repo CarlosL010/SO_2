@@ -12,6 +12,7 @@ import bitacora.Transaccion;
 import concurrencia.GestorLocks;
 import gui.SimuladorGUI; 
 import javax.swing.SwingUtilities; 
+import javax.swing.JOptionPane;
 
 public class GestorProcesos implements Runnable {
     private Cola<Proceso> colaListos;
@@ -27,8 +28,6 @@ public class GestorProcesos implements Runnable {
     private volatile boolean pausado;
     private volatile int tiempoVelocidadMs; 
     private int cicloActual; 
-
-    // --- NUEVO: GATILLO DE FALLO ---
     private volatile boolean forzarCrash = false;
 
     public GestorProcesos(PlanificadorDisco planificador, MotorBitacora bitacora, GestorLocks locks, SimuladorGUI gui, Disco discoVirtual) {
@@ -38,14 +37,11 @@ public class GestorProcesos implements Runnable {
         this.locks = locks;
         this.gui = gui;
         this.discoVirtual = discoVirtual;
-        
         this.sistemaCorriendo = false;
         this.contadorIdProcesos = 1;
         this.pausado = false;
         this.tiempoVelocidadMs = 500; 
         this.cicloActual = 0;
-        
-        // Le pasamos el disco a la bitácora para que pueda hacer el Undo después
         this.bitacora.setDiscoVirtual(discoVirtual);
     }
 
@@ -55,14 +51,13 @@ public class GestorProcesos implements Runnable {
     public PlanificadorDisco getPlanificador() { return planificador; }
     public MotorBitacora getBitacora() { return bitacora; }
     public int getCicloActual() { return cicloActual; }
-
-    public void activarCrash() { this.forzarCrash = true; } // Activa la trampa
+    public void activarCrash() { this.forzarCrash = true; } 
 
     public void agregarProcesoCRUD(String operacion, String nombreArchivo, int posicionDestino, int tamano) {
         Proceso nuevoProceso = new Proceso(contadorIdProcesos++, operacion, nombreArchivo, posicionDestino, tamano);
         colaListos.enqueue(nuevoProceso);
         if(gui != null) {
-            gui.agregarLog(cicloActual, "Proceso recibido: Proc-" + nuevoProceso.getId() + " (" + operacion.toUpperCase() + ")");
+            gui.agregarLog(cicloActual, "Proceso encolado: Proc-" + nuevoProceso.getId() + " (" + operacion.toUpperCase() + ")");
             actualizarVistaCola(null);
         }
     }
@@ -99,11 +94,13 @@ public class GestorProcesos implements Runnable {
                 if (procesoAEjecutar != null) {
                     procesoAEjecutar.setEstado("Ejecutando");
                     actualizarVistaCola(procesoAEjecutar);
-                    gui.agregarLog(cicloActual, "CPU asignada a Proc-" + procesoAEjecutar.getId());
+                    
+                    
+                    gui.agregarLog(cicloActual, "=> PLANIFICADOR: Cabezal movido al BLOQUE " + procesoAEjecutar.getPosicionBloque());
+                    gui.agregarLog(cicloActual, "CPU asignada a Proc-" + procesoAEjecutar.getId() + " (" + procesoAEjecutar.getNombreArchivo() + ")");
                     
                     ejecutarOperacionReal(procesoAEjecutar);
-                    
-                    if (!sistemaCorriendo) return; // Si hubo crash, el hilo muere aquí mismo.
+                    if (!sistemaCorriendo) return; 
 
                     procesoAEjecutar.setEstado("Terminado");
                     actualizarVistaCola(null);
@@ -116,34 +113,64 @@ public class GestorProcesos implements Runnable {
     }
 
     private void ejecutarOperacionReal(Proceso p) {
-        boolean esEscritura = p.getOperacion().equals("Crear") || p.getOperacion().equals("Eliminar") || p.getOperacion().equals("Actualizar");
+        boolean esEscritura = p.getOperacion().equals("Crear") || p.getOperacion().equals("CrearDir") || p.getOperacion().equals("Eliminar") || p.getOperacion().equals("Actualizar");
+        
+        String[] partesRuta = p.getNombreArchivo().split("/");
+        String nombrePadre = partesRuta.length > 1 ? partesRuta[0] : "Raíz";
+        String nombreReal = partesRuta.length > 1 ? partesRuta[1] : p.getNombreArchivo();
 
+        // --- 1. ADQUIRIR LOCK Y ACTUALIZAR INTERFAZ ---
         if (esEscritura) locks.adquirirLockEscritura();
         else locks.adquirirLockLectura(); 
         
+        if(gui != null) {
+            gui.setEstadoLockArchivo(nombreReal, esEscritura ? "ESCRIBIENDO (Lock Exclusivo)" : "LEYENDO (Lock Compartido)");
+            SwingUtilities.invokeLater(() -> gui.refrescarTodo());
+        }
+
         Transaccion t = bitacora.registrarPendiente(p.getOperacion(), p.getNombreArchivo());
         gui.agregarLog(cicloActual, "Journaling: Transacción PENDIENTE (" + p.getOperacion() + ")");
         
-        try { Thread.sleep(tiempoVelocidadMs / 2); } catch (InterruptedException e) {}
+        // Simulación de latencia de E/S donde el Lock es visible
+        try { Thread.sleep(tiempoVelocidadMs); } catch (InterruptedException e) {}
         
         boolean exito = true;
-        if (p.getOperacion().equals("Crear")) exito = discoVirtual.crearArchivo(p.getNombreArchivo(), "Administrador", p.getTamanoRequerido());
-        else if (p.getOperacion().equals("Eliminar")) exito = discoVirtual.eliminarArchivo(p.getNombreArchivo());
         
-        // --- ¡EL MOMENTO DEL FALLO! ---
+        if (p.getOperacion().equals("Crear")) {
+            exito = discoVirtual.crearArchivo(nombreReal, "Administrador", p.getTamanoRequerido());
+            if (exito && !nombrePadre.equals("Raíz") && !nombrePadre.equals(nombreReal)) {
+                moverNodoAPadre(discoVirtual.getArbolDirectorios().getRaiz(), nombrePadre, nombreReal);
+            }
+        } else if (p.getOperacion().equals("CrearDir")) {
+            estructuras.NodoArbol nuevoDir = new estructuras.NodoArbol(nombreReal, "Administrador");
+            estructuras.NodoArbol padre = buscarNodoRecursivo(discoVirtual.getArbolDirectorios().getRaiz(), nombrePadre);
+            if (padre != null) padre.agregarHijo(nuevoDir);
+            else discoVirtual.getArbolDirectorios().getRaiz().agregarHijo(nuevoDir);
+            exito = true;
+        } else if (p.getOperacion().equals("Eliminar")) {
+            exito = discoVirtual.eliminarArchivo(nombreReal);
+        }
+        
         if (forzarCrash && esEscritura) {
-            this.sistemaCorriendo = false; // Matamos el Hilo
+            this.sistemaCorriendo = false; 
             SwingUtilities.invokeLater(() -> gui.ejecutarPantallazoCrash());
-            return; // Salimos SIN HACER COMMIT Y SIN LIBERAR LOCKS (Simulando fallo real)
+            return; 
         }
         
         if (exito) {
             bitacora.hacerCommit(t);
-            gui.agregarLog(cicloActual, "Journaling: Transacción CONFIRMADA (Commit)");
+            gui.agregarLog(cicloActual, "Journaling: Transacción CONFIRMADA");
         } else {
             t.setEstado("FALLIDA");
+            gui.agregarLog(cicloActual, "ERROR: No se pudo procesar '" + nombreReal + "'.");
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(gui, "Error con el elemento: '" + nombreReal + "'.\nRevise la estructura del sistema.", "Operación Fallida", JOptionPane.WARNING_MESSAGE);
+            });
         }
         
+        // --- 2. LIBERAR LOCK Y ACTUALIZAR INTERFAZ ---
+        if (gui != null) gui.setEstadoLockArchivo(nombreReal, "Libre");
+
         if (esEscritura) locks.liberarLockEscritura();
         else locks.liberarLockLectura();
         
@@ -151,5 +178,38 @@ public class GestorProcesos implements Runnable {
             gui.refrescarTodo();
             gui.actualizarEstado(cicloActual, planificador.getPosicionCabezal());
         });
+    }
+
+    private void moverNodoAPadre(estructuras.NodoArbol raiz, String nombrePadre, String nombreArchivo) {
+        estructuras.Nodo<estructuras.NodoArbol> actual = raiz.getHijos().getHead();
+        estructuras.NodoArbol nodoAMover = null;
+        
+        while (actual != null) {
+            if (actual.getData().getNombre().equals(nombreArchivo)) {
+                nodoAMover = actual.getData();
+                raiz.getHijos().remove(nodoAMover);
+                break;
+            }
+            actual = actual.getNext();
+        }
+        
+        if (nodoAMover != null) {
+            estructuras.NodoArbol padre = buscarNodoRecursivo(raiz, nombrePadre);
+            if (padre != null) padre.agregarHijo(nodoAMover);
+            else raiz.agregarHijo(nodoAMover); 
+        }
+    }
+
+    private estructuras.NodoArbol buscarNodoRecursivo(estructuras.NodoArbol actual, String nombreBuscado) {
+        if (actual.getNombre().equals(nombreBuscado)) return actual;
+        if (actual.getHijos() != null) {
+            estructuras.Nodo<estructuras.NodoArbol> hijo = actual.getHijos().getHead();
+            while (hijo != null) {
+                estructuras.NodoArbol encontrado = buscarNodoRecursivo(hijo.getData(), nombreBuscado);
+                if (encontrado != null) return encontrado;
+                hijo = hijo.getNext();
+            }
+        }
+        return null;
     }
 }
