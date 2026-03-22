@@ -5,17 +5,17 @@
 package bitacora;
 import estructuras.ListaEnlazada;
 import estructuras.Nodo;
-/**
- *
- * @author pinto
- */
 import core.Disco;
 import estructuras.ListaEnlazada;
 import estructuras.Nodo;
 
+/**
+ *
+ * @author pinto
+ */
 public class MotorBitacora {
     private ListaEnlazada<Transaccion> logTransacciones;
-    private Disco discoVirtual; // NUEVO: Para poder hacer el Undo físico
+    private Disco discoVirtual; 
 
     public MotorBitacora() {
         this.logTransacciones = new ListaEnlazada<>();
@@ -57,7 +57,7 @@ public class MotorBitacora {
         if (t.getTipoOperacion().equals("Crear")) {
             System.out.println("UNDO: Revirtiendo CREATE. Eliminando rastros de '" + t.getNombreArchivo() + "'.");
             if (discoVirtual != null) {
-                // ¡Llamamos al método de la Persona A para liberar los bloques!
+                
                 discoVirtual.eliminarArchivo(t.getNombreArchivo()); 
             }
         } else if (t.getTipoOperacion().equals("Eliminar")) {

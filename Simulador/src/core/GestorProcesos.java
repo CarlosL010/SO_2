@@ -14,6 +14,10 @@ import gui.SimuladorGUI;
 import javax.swing.SwingUtilities; 
 import javax.swing.JOptionPane;
 
+/**
+ *
+ * @author pinto
+ */
 public class GestorProcesos implements Runnable {
     private Cola<Proceso> colaListos;
     private PlanificadorDisco planificador;
@@ -119,7 +123,7 @@ public class GestorProcesos implements Runnable {
         String nombrePadre = partesRuta.length > 1 ? partesRuta[0] : "Raíz";
         String nombreReal = partesRuta.length > 1 ? partesRuta[1] : p.getNombreArchivo();
 
-        // --- 1. ADQUIRIR LOCK Y ACTUALIZAR INTERFAZ ---
+        
         if (esEscritura) locks.adquirirLockEscritura();
         else locks.adquirirLockLectura(); 
         

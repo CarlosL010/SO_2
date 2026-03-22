@@ -8,6 +8,10 @@ import estructuras.Arbol;
 import estructuras.NodoArbol;
 import modelos.Bloque;
 
+/**
+ *
+ * @author pinto
+ */
 public class Disco {
     private Bloque[] bloques;
     private int capacidad;

@@ -16,11 +16,14 @@ import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+
+/**
+ *
+ * @author pinto
+ */
 public class CargadorPruebas {
 
-    // ==========================================
-    // 1. LÓGICA PARA LEER (CARGAR) EL JSON
-    // ==========================================
+    
     public static void cargarJSON(String rutaArchivo, Disco disco, GestorProcesos gestor, PlanificadorDisco planificador) {
         try {
             System.out.println("--- Cargando Caso de Prueba ---");
@@ -71,9 +74,9 @@ public class CargadorPruebas {
         }
     }
 
-    // ==========================================
-    // 2. LÓGICA PARA EXPORTAR (GUARDAR) EL JSON
-    // ==========================================
+    
+   
+
     public static void guardarEstado(String rutaArchivo, Disco disco, int cabezalActual) {
         StringBuilder json = new StringBuilder();
         json.append("{\n");
@@ -115,9 +118,7 @@ public class CargadorPruebas {
         }
     }
 
-    // ==========================================
-    // 3. MÉTODOS AUXILIARES
-    // ==========================================
+    
     private static void forzarArchivoEnDisco(Disco disco, String nombre, int bloqueInicio, int cantidad) {
         Bloque[] bloques = disco.getBloques();
         NodoArbol nuevoArchivo = new NodoArbol(nombre, "Administrador", cantidad, bloqueInicio);

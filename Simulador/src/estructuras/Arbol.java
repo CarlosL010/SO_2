@@ -4,6 +4,10 @@
  */
 package estructuras;
 
+/**
+ *
+ * @author josep
+ */
 public class Arbol {
     private NodoArbol raiz;
 

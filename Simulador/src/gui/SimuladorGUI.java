@@ -1,3 +1,7 @@
+/*
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
+ */
 package gui;
 
 import core.Disco;
@@ -18,6 +22,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.HashMap;
 
+/**
+ *
+ * @author josep
+ */
 public class SimuladorGUI extends JFrame {
 
     private Disco discoVirtual;
@@ -182,7 +190,7 @@ public class SimuladorGUI extends JFrame {
         tabCentro.addTab("Journal (Bitácora)", scrollJournal);
         add(tabCentro, BorderLayout.CENTER);
 
-        // --- PANELES INFERIORES ---
+      
         JPanel panelSur = new JPanel(new GridLayout(1, 2, 10, 0));
         panelSur.setPreferredSize(new Dimension(0, 200));
 
