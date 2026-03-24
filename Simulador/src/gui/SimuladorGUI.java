@@ -75,7 +75,7 @@ public class SimuladorGUI extends JFrame {
         setLocationRelativeTo(null);
         setLayout(new BorderLayout(10, 10));
 
-        
+        // --- PANELES SUPERIORES ---
         JPanel panelControles = new JPanel(new GridLayout(2, 1, 5, 5));
         panelControles.setBorder(BorderFactory.createTitledBorder("Controles"));
 
@@ -127,7 +127,7 @@ public class SimuladorGUI extends JFrame {
         panelControles.add(panelFila2);
         add(panelControles, BorderLayout.NORTH);
 
-        
+        // --- PANEL IZQUIERDO Y MENÚ CONTEXTUAL ---
         DefaultMutableTreeNode raizVisual = construirNodosVisuales(discoVirtual.getArbolDirectorios().getRaiz());
         modeloArbol = new DefaultTreeModel(raizVisual);
         arbolDirectorios = new JTree(modeloArbol);
@@ -160,7 +160,7 @@ public class SimuladorGUI extends JFrame {
         scrollArbol.setBorder(BorderFactory.createTitledBorder("Sistema de Archivos"));
         add(scrollArbol, BorderLayout.WEST);
 
-       
+        // --- PESTAÑAS CENTRALES ---
         JTabbedPane tabCentro = new JTabbedPane();
         
         panelDisco = new JPanel(new GridLayout(0, 10, 2, 2)); 
@@ -173,7 +173,6 @@ public class SimuladorGUI extends JFrame {
             panelDisco.add(etiquetasBloques[i]);
         }
         JScrollPane scrollDisco = new JScrollPane(panelDisco);
-        
         
         String[] columnasFAT = {"Nombre", "Bloques", "Inicio", "Propietario", "Estado de Lock"};
         modeloTabla = new DefaultTableModel(columnasFAT, 0);
@@ -190,7 +189,7 @@ public class SimuladorGUI extends JFrame {
         tabCentro.addTab("Journal (Bitácora)", scrollJournal);
         add(tabCentro, BorderLayout.CENTER);
 
-      
+        // --- PANELES INFERIORES ---
         JPanel panelSur = new JPanel(new GridLayout(1, 2, 10, 0));
         panelSur.setPreferredSize(new Dimension(0, 200));
 
@@ -238,13 +237,9 @@ public class SimuladorGUI extends JFrame {
         lblCabeza.setText("Cabeza: " + cabeza);
     }
 
-    
     public void setEstadoLockArchivo(String nombreArchivo, String estado) {
-        if (estado.equals("Libre")) {
-            estadoLocks.remove(nombreArchivo);
-        } else {
-            estadoLocks.put(nombreArchivo, estado);
-        }
+        if (estado.equals("Libre")) estadoLocks.remove(nombreArchivo);
+        else estadoLocks.put(nombreArchivo, estado);
     }
 
     private String obtenerPadreSeleccionado() {
@@ -263,13 +258,10 @@ public class SimuladorGUI extends JFrame {
             if (esArchivo) {
                 try {
                     int tamano = Integer.parseInt(JOptionPane.showInputDialog("¿Cuántos bloques ocupará?"));
-                    
-                   
                     if (tamano <= 0 || tamano > 250) {
                         JOptionPane.showMessageDialog(this, "Error: El tamaño debe ser entre 1 y 250 bloques.", "Entrada Inválida", JOptionPane.ERROR_MESSAGE);
                         return;
                     }
-                    
                     gestorProcesos.agregarProcesoCRUD("Crear", padre + "/" + nombre, 0, tamano);
                 } catch (NumberFormatException ex) {
                     JOptionPane.showMessageDialog(this, "Error: Debe ingresar un número entero válido.", "Entrada Inválida", JOptionPane.ERROR_MESSAGE);
@@ -282,16 +274,13 @@ public class SimuladorGUI extends JFrame {
 
     private void dispararEliminacionLocal() {
         if (gestorProcesos == null) return;
-        
         DefaultMutableTreeNode nodo = (DefaultMutableTreeNode) arbolDirectorios.getLastSelectedPathComponent();
         String nombreAEliminar = null;
 
         if (nodo != null && !nodo.getUserObject().toString().equals("Raíz")) {
             String nombreSeleccionado = nodo.getUserObject().toString();
             int confirm = JOptionPane.showConfirmDialog(this, "¿Seguro que desea eliminar '" + nombreSeleccionado + "'?", "Confirmar Eliminación", JOptionPane.YES_NO_OPTION);
-            if (confirm == JOptionPane.YES_OPTION) {
-                nombreAEliminar = nombreSeleccionado;
-            }
+            if (confirm == JOptionPane.YES_OPTION) nombreAEliminar = nombreSeleccionado;
         } else {
             nombreAEliminar = JOptionPane.showInputDialog(this, "Ingrese el nombre del archivo o directorio a eliminar:");
         }
@@ -322,12 +311,12 @@ public class SimuladorGUI extends JFrame {
         nuevoPlanificador.setPolitica((String)comboPlanificador.getSelectedItem());
         
         this.gestorProcesos = new GestorProcesos(nuevoPlanificador, bitacora, new GestorLocks(), this, discoVirtual);
+        this.gestorProcesos.setUsuarioSesion(comboModoUsuario.getSelectedItem().toString()); // Restaurar usuario tras crash
         this.gestorProcesos.iniciarSistema();
         
-        
         estadoLocks.clear();
-        
         refrescarTodo();
+        
         btnSimularFallo.setText("Simular Fallo");
         btnSimularFallo.setBackground(new Color(255, 100, 100));
         btnSimularFallo.setForeground(Color.WHITE);
@@ -351,9 +340,8 @@ public class SimuladorGUI extends JFrame {
 
     private void poblarTablaFAT(NodoArbol nodo, DefaultTableModel modelo) {
         if (nodo.isEsArchivo()) {
-            
-            String lockAcivo = estadoLocks.getOrDefault(nodo.getNombre(), "Libre");
-            modelo.addRow(new Object[]{nodo.getNombre(), nodo.getTamanoEnBloques(), nodo.getPrimerBloqueAsignado(), nodo.getPropietario(), lockAcivo});
+            String lockActivo = estadoLocks.getOrDefault(nodo.getNombre(), "Libre");
+            modelo.addRow(new Object[]{nodo.getNombre(), nodo.getTamanoEnBloques(), nodo.getPrimerBloqueAsignado(), nodo.getPropietario(), lockActivo});
         } else if (nodo.getHijos() != null) {
             estructuras.Nodo<NodoArbol> actual = nodo.getHijos().getHead();
             while (actual != null) {
@@ -413,16 +401,13 @@ public class SimuladorGUI extends JFrame {
         btnDirectorio.addActionListener(e -> dispararCreacion(false));
         btnEliminar.addActionListener(e -> dispararEliminacionLocal());
 
+        // --- MANEJO DE PERMISOS: Solo avisa al motor, no bloquea botones ---
         comboModoUsuario.addActionListener(e -> {
-            boolean esAdmin = comboModoUsuario.getSelectedIndex() == 0;
-            
-            btnCrear.setEnabled(esAdmin); btnDirectorio.setEnabled(esAdmin);
-            btnRenombrar.setEnabled(esAdmin); btnEliminar.setEnabled(esAdmin); 
-            btnCargarJSON.setEnabled(esAdmin); btnGuardarJSON.setEnabled(esAdmin);
-            
-            menuCrearArch.setEnabled(esAdmin); menuCrearDir.setEnabled(esAdmin); menuEliminarItem.setEnabled(esAdmin);
-            
-            if (gestorProcesos != null) agregarLog(gestorProcesos.getCicloActual(), esAdmin ? "SISTEMA: Modo Administrador." : "SISTEMA: Modo Usuario. Sin permisos de escritura.");
+            String modoSeleccionado = comboModoUsuario.getSelectedItem().toString();
+            if (gestorProcesos != null) {
+                gestorProcesos.setUsuarioSesion(modoSeleccionado);
+                agregarLog(gestorProcesos.getCicloActual(), "SISTEMA: Sesión cambiada a modo " + modoSeleccionado.toUpperCase());
+            }
         });
 
         btnLeer.addActionListener(e -> {
