@@ -44,7 +44,9 @@ public class SimuladorGUI extends JFrame {
     private JComboBox<String> comboPlanificador;
     private JSlider sliderVelocidad;
     private JLabel lblCiclo, lblCabeza, lblVelocidadText;
-    private JButton btnCrear, btnDirectorio, btnLeer, btnRenombrar, btnEliminar, btnPausar, btnCargarJSON, btnGuardarJSON, btnSimularFallo; 
+    
+    // --- NUEVO BOTÓN: btnLimpiarDisco ---
+    private JButton btnCrear, btnDirectorio, btnLeer, btnRenombrar, btnEliminar, btnPausar, btnCargarJSON, btnGuardarJSON, btnLimpiarDisco, btnSimularFallo; 
 
     private JTextArea txtLogEventos;
     private JTextArea txtColaProcesos;
@@ -70,7 +72,7 @@ public class SimuladorGUI extends JFrame {
         this.estadoLocks = new HashMap<>();
 
         setTitle("Simulador de Sistema de Archivos - Trimestre 2526-2");
-        setSize(1300, 800); 
+        setSize(1350, 800); 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         setLayout(new BorderLayout(10, 10));
@@ -98,13 +100,18 @@ public class SimuladorGUI extends JFrame {
         btnPausar = new JButton("Pausar");
         btnCargarJSON = new JButton("Cargar JSON");
         btnGuardarJSON = new JButton("Guardar JSON");
+        
+        // --- INICIALIZACIÓN DEL BOTÓN DE LIMPIAR ---
+        btnLimpiarDisco = new JButton("Limpiar Disco");
+        btnLimpiarDisco.setBackground(new Color(255, 200, 100)); // Naranja de advertencia
+        
         btnSimularFallo = new JButton("Simular Fallo");
         btnSimularFallo.setBackground(new Color(255, 100, 100));
         btnSimularFallo.setForeground(Color.WHITE);
 
         panelFila1.add(btnCrear); panelFila1.add(btnDirectorio); panelFila1.add(btnLeer);
         panelFila1.add(btnRenombrar); panelFila1.add(btnEliminar); panelFila1.add(btnPausar);
-        panelFila1.add(btnCargarJSON); panelFila1.add(btnGuardarJSON); panelFila1.add(btnSimularFallo);
+        panelFila1.add(btnCargarJSON); panelFila1.add(btnGuardarJSON); panelFila1.add(btnLimpiarDisco); panelFila1.add(btnSimularFallo);
 
         JPanel panelFila2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
         panelFila2.add(new JLabel("Velocidad (ms):"));
@@ -296,7 +303,7 @@ public class SimuladorGUI extends JFrame {
         
         comboModoUsuario.setEnabled(false); btnCrear.setEnabled(false); btnDirectorio.setEnabled(false);
         btnLeer.setEnabled(false); btnRenombrar.setEnabled(false); btnEliminar.setEnabled(false);
-        btnCargarJSON.setEnabled(false); btnGuardarJSON.setEnabled(false); btnPausar.setEnabled(false);
+        btnCargarJSON.setEnabled(false); btnGuardarJSON.setEnabled(false); btnPausar.setEnabled(false); btnLimpiarDisco.setEnabled(false);
         
         btnSimularFallo.setText("Reiniciar Sistema");
         btnSimularFallo.setBackground(new Color(100, 255, 100));
@@ -311,7 +318,7 @@ public class SimuladorGUI extends JFrame {
         nuevoPlanificador.setPolitica((String)comboPlanificador.getSelectedItem());
         
         this.gestorProcesos = new GestorProcesos(nuevoPlanificador, bitacora, new GestorLocks(), this, discoVirtual);
-        this.gestorProcesos.setUsuarioSesion(comboModoUsuario.getSelectedItem().toString()); // Restaurar usuario tras crash
+        this.gestorProcesos.setUsuarioSesion(comboModoUsuario.getSelectedItem().toString()); 
         this.gestorProcesos.iniciarSistema();
         
         estadoLocks.clear();
@@ -323,7 +330,46 @@ public class SimuladorGUI extends JFrame {
         
         comboModoUsuario.setEnabled(true); btnCrear.setEnabled(true); btnDirectorio.setEnabled(true);
         btnLeer.setEnabled(true); btnRenombrar.setEnabled(true); btnEliminar.setEnabled(true);
-        btnCargarJSON.setEnabled(true); btnGuardarJSON.setEnabled(true); btnPausar.setEnabled(true);
+        btnCargarJSON.setEnabled(true); btnGuardarJSON.setEnabled(true); btnPausar.setEnabled(true); btnLimpiarDisco.setEnabled(true);
+    }
+
+    // --- NUEVO MÉTODO LÓGICO: FORMATEAR Y LIMPIAR EL SISTEMA ---
+    private void formatearDiscoTotalmente() {
+        int confirm = JOptionPane.showConfirmDialog(this, "¿Seguro que desea limpiar el disco por completo?\nSe perderán todos los archivos y configuraciones actuales.", "Confirmar Formateo", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        
+        if (confirm == JOptionPane.YES_OPTION) {
+            // 1. Detener el motor actual para evitar cruce de hilos
+            if (gestorProcesos != null) {
+                gestorProcesos.setPausado(true); 
+            }
+
+            // 2. Instanciar un disco completamente vacío
+            this.discoVirtual = new Disco(250);
+            
+            // 3. Limpiar cachés visuales de la interfaz
+            this.coloresArchivos.clear();
+            this.estadoLocks.clear();
+            this.indiceColor = 0;
+            
+            // 4. Limpiar consolas de texto
+            this.txtLogEventos.setText("");
+            this.txtColaProcesos.setText("");
+
+            // 5. Reiniciar el motor lógico completo
+            MotorBitacora bitacoraLimpia = new MotorBitacora();
+            bitacoraLimpia.setDiscoVirtual(this.discoVirtual);
+            
+            PlanificadorDisco nuevoPlanificador = new PlanificadorDisco(50); // Cabezal a 50 (estado inicial PDF)
+            nuevoPlanificador.setPolitica((String)comboPlanificador.getSelectedItem());
+            
+            this.gestorProcesos = new GestorProcesos(nuevoPlanificador, bitacoraLimpia, new GestorLocks(), this, this.discoVirtual);
+            this.gestorProcesos.setUsuarioSesion(comboModoUsuario.getSelectedItem().toString());
+            this.gestorProcesos.iniciarSistema();
+            
+            // 6. Refrescar los componentes gráficos
+            refrescarTodo();
+            agregarLog(0, "SISTEMA: Disco formateado exitosamente. Se ha restablecido el estado inicial.");
+        }
     }
 
     private DefaultMutableTreeNode construirNodosVisuales(NodoArbol nodoLogico) {
@@ -401,7 +447,6 @@ public class SimuladorGUI extends JFrame {
         btnDirectorio.addActionListener(e -> dispararCreacion(false));
         btnEliminar.addActionListener(e -> dispararEliminacionLocal());
 
-        // --- MANEJO DE PERMISOS: Solo avisa al motor, no bloquea botones ---
         comboModoUsuario.addActionListener(e -> {
             String modoSeleccionado = comboModoUsuario.getSelectedItem().toString();
             if (gestorProcesos != null) {
@@ -421,6 +466,9 @@ public class SimuladorGUI extends JFrame {
         });
 
         btnLimpiarLog.addActionListener(e -> txtLogEventos.setText(""));
+
+        // --- ASIGNACIÓN DE ACCIÓN AL NUEVO BOTÓN ---
+        btnLimpiarDisco.addActionListener(e -> formatearDiscoTotalmente());
 
         btnCargarJSON.addActionListener(e -> {
             JFileChooser fileChooser = new JFileChooser();
