@@ -34,7 +34,6 @@ public class GestorProcesos implements Runnable {
     private int cicloActual; 
     private volatile boolean forzarCrash = false;
     
-    // --- USUARIO EN SESIÓN ---
     private String usuarioSesion = "Administrador"; 
 
     public GestorProcesos(PlanificadorDisco planificador, MotorBitacora bitacora, GestorLocks locks, SimuladorGUI gui, Disco discoVirtual) {
@@ -103,7 +102,6 @@ public class GestorProcesos implements Runnable {
                     procesoAEjecutar.setEstado("Ejecutando");
                     actualizarVistaCola(procesoAEjecutar);
                     
-                    // Rastreo del cabezal para verificar los algoritmos matemáticos
                     gui.agregarLog(cicloActual, "=> PLANIFICADOR: Cabezal movido al BLOQUE " + procesoAEjecutar.getPosicionBloque());
                     gui.agregarLog(cicloActual, "CPU asignada a Proc-" + procesoAEjecutar.getId() + " (" + procesoAEjecutar.getNombreArchivo() + ")");
                     
@@ -127,18 +125,17 @@ public class GestorProcesos implements Runnable {
         String nombrePadre = partesRuta.length > 1 ? partesRuta[0] : "Raíz";
         String nombreReal = partesRuta.length > 1 ? partesRuta[1] : p.getNombreArchivo();
 
-        // --- MURO DE SEGURIDAD (PERMISOS DE USUARIO) ---
+       
         if (usuarioSesion.equals("Usuario") && (p.getOperacion().equals("Eliminar") || p.getOperacion().equals("Actualizar"))) {
             estructuras.NodoArbol nodoObjetivo = buscarNodoRecursivo(discoVirtual.getArbolDirectorios().getRaiz(), nombreReal);
             
             if (nodoObjetivo != null && !nodoObjetivo.getPropietario().equals("Usuario")) {
                 if(gui != null) gui.agregarLog(cicloActual, "PERMISO DENEGADO: '" + nombreReal + "' pertenece a " + nodoObjetivo.getPropietario());
                 SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(gui, "Acceso Denegado: El Modo Usuario no puede modificar ni eliminar archivos del sistema o de otros administradores.", "Violación de Seguridad", JOptionPane.ERROR_MESSAGE));
-                return; // Cortamos la ejecución, el proceso muere
+                return; 
             }
         }
 
-        // --- ADQUIRIR LOCKS Y ACTUALIZAR INTERFAZ ---
         if (esEscritura) locks.adquirirLockEscritura();
         else locks.adquirirLockLectura(); 
         
@@ -167,6 +164,15 @@ public class GestorProcesos implements Runnable {
             exito = true;
         } else if (p.getOperacion().equals("Eliminar")) {
             exito = discoVirtual.eliminarArchivo(nombreReal);
+        } else if (p.getOperacion().equals("Leer") || p.getOperacion().equals("Actualizar")) {
+            
+           
+            estructuras.NodoArbol archivoBuscado = buscarNodoRecursivo(discoVirtual.getArbolDirectorios().getRaiz(), nombreReal);
+            if (archivoBuscado == null) {
+                exito = false; // Si no lo encuentra, forzamos a que la operación falle
+            }
+            
+            
         }
         
         if (forzarCrash && esEscritura) {
@@ -174,6 +180,7 @@ public class GestorProcesos implements Runnable {
             SwingUtilities.invokeLater(() -> gui.ejecutarPantallazoCrash());
             return; 
         }
+        
         
         if (exito) {
             bitacora.hacerCommit(t);
@@ -184,7 +191,6 @@ public class GestorProcesos implements Runnable {
             SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(gui, "Error con el elemento: '" + nombreReal + "'.\nVerifique si existe en el sistema.", "Operación Fallida", JOptionPane.WARNING_MESSAGE));
         }
         
-        // --- LIBERAR LOCKS Y ACTUALIZAR INTERFAZ ---
         if (gui != null) gui.setEstadoLockArchivo(nombreReal, "Libre");
 
         if (esEscritura) locks.liberarLockEscritura();
